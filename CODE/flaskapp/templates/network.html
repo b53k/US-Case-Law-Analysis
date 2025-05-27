@@ -1,0 +1,386 @@
+<!doctype html>
+
+<head>
+  <title>Network Visualization</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+</head>
+
+<body>
+  <nav class="navbar navbar-expand-lg bg-body-tertiary">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="/">Case Law Project</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent"
+        aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarSupportedContent">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0" style="float: right;">
+          <button class="btn" id="case-reload-btn">Reload Cases</button>
+        </ul>
+      </div>
+    </div>
+  </nav>
+  <div id="main-container">
+    <div class="card" id="case-selector-card">
+      <div class="card-body">
+        <h3 class="card-title">Select the root case</h3>
+        <div id="selection-container"></div>
+      </div>
+    </div>
+    <div class="card" id="popup">
+      <div class="card-body">
+        <button id="popup-close-button">x</button>
+        <h3 class="card-title" id="popup-case-name">Case Name</h3>
+        <h4 class="card-title" id="popup-case-id">Case ID</h4>
+        <h5 class="card-title" id="popup-case-jurisdiction">Jurisdiction</h5>
+        <p class="card-text" id="popup-case-opinion">Case Body</p>
+      </div>
+    </div>
+  </div>
+  <script type="text/javascript" src="/static/lib/d3.v5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+    crossorigin="anonymous"></script>
+  <script>
+    document.getElementById("popup-close-button").addEventListener("click", () => {
+      document.getElementById("popup").style.display = "none";
+    });
+
+    document.getElementById("case-reload-btn").addEventListener("click", () => {
+      document.getElementById("popup").style.display = "none";
+      document.querySelectorAll('svg').forEach(svg => svg.remove());
+      document.getElementById("selection-container").innerHTML = '';
+
+      get_root_cases();
+      document.getElementById("case-selector-card").style.display = 'inline-block';
+    });
+
+    get_root_cases();
+
+    function get_root_cases() {
+      fetch(`/get_root_cases`)
+        .then(response => response.json())
+        .then(data => {
+          const cases = data.cases;
+          let selection_container = document.getElementById("selection-container");
+          cases.forEach(element => {
+            const child_container = document.createElement("div");
+
+            const header = document.createElement("h4");
+            header.innerHTML = element.name;
+
+            child_container.append(header);
+            child_container.classList = "card"
+
+            child_container.addEventListener("click", () => {
+              GenerateCaseGraph(element.id);
+
+              document.getElementById("case-selector-card").style.display = 'none';
+            });
+
+            selection_container.append(child_container);
+          });
+
+        }).catch(error => console.log('Error fetching data:', error));
+    }
+
+    function GenerateCaseGraph(case_id) {
+      console.log(case_id);
+      fetch(`/get_case_graph/${case_id}`)
+        .then(response => response.json())
+        .then(data => {
+          console.log(data);
+          let nodes = data.cases;
+          links = data.links;
+
+          // compute the distinct nodes from the links.
+          // links.forEach(function (link) {
+          //   link.source = nodes[link.source] || (nodes[link.source] = { name: link.source });
+          //   link.target = nodes[link.target] || (nodes[link.target] = { name: link.target });
+          // });
+
+          let width = 3000,
+            height = 2000;
+
+          let force = d3.forceSimulation()
+            .nodes(nodes)
+            .force("link", d3.forceLink(links).distance(100).id(d => d.id))
+            .force('center', d3.forceCenter(width / 3, height / 2))
+            .force("x", d3.forceX())
+            .force("y", d3.forceY())
+            .force("charge", d3.forceManyBody().strength(-5000))
+            // .force("charge", d3.forceManyBody().strength(-250))
+            // .alphaTarget(1)
+            .on("tick", tick);
+
+          let svg = d3.select("#main-container").append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+          var path = svg.append("g")
+            .selectAll("path")
+            .data(links)
+            .enter()
+            .append("path");
+          // .attr("class", function (d) { return "link " + d.type; });
+
+          let node = svg.selectAll(".node")
+            .data(force.nodes())
+            .enter().append("g")
+            .attr("class", "node")
+            .call(d3.drag()
+              .on("start", dragstarted)
+              .on("drag", dragged)
+              .on("end", dragended));
+
+          const colorScale = d3.scaleOrdinal()
+            .domain(["Civil", "Constitutional", "Criminal", "Administrative", "Unknown"])
+            .range(d3.schemeCategory10);
+
+          // add the nodes
+          node.append("circle")
+            // .attr("id", function (d) {
+            //   return (d.name.replace(/\s+/g, '').toLowerCase());
+            // })
+            .attr("r", 60)
+            .attr("fill", (d) => colorScale(d.case_type));
+
+          // add the node labels
+          node.append("text")
+            .attr("x", 0)
+            .attr("y", 5)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "middle")
+            .text(d => d.name_abbreviation.slice(0, 15));
+
+          node.on("click", click);
+
+          let legend = svg.append("g")
+            .attr("transform", `translate(${width - 350}, ${height - (200) - 400})`);
+
+          legend.append("rect")
+            .attr("width", 50)
+            .attr("height", 50)
+            .attr("fill", colorScale("Civil"));
+
+          legend.append("text")
+            .attr("x", 50)
+            .attr("y", 25)
+            .text("Civil")
+            .style("font-size", "30px")
+            .attr("alignment-baseline", "middle");
+
+          legend.append("rect")
+            .attr("y", 60)
+            .attr("width", 50)
+            .attr("height", 50)
+            .attr("fill", colorScale("Constitutional"));
+
+          legend.append("text")
+            .attr("x", 50)
+            .attr("y", 85)
+            .text("Constitutional")
+            .style("font-size", "30px")
+            .attr("alignment-baseline", "middle");
+
+          legend.append("rect")
+            .attr("y", 120)
+            .attr("width", 50)
+            .attr("height", 50)
+            .attr("fill", colorScale("Criminal"));
+
+          legend.append("text")
+            .attr("x", 50)
+            .attr("y", 145)
+            .text("Criminal")
+            .style("font-size", "30px")
+            .attr("alignment-baseline", "middle");
+
+          legend.append("rect")
+            .attr("y", 180)
+            .attr("width", 50)
+            .attr("height", 50)
+            .attr("fill", colorScale("Administrative"));
+
+          legend.append("text")
+            .attr("x", 50)
+            .attr("y", 205)
+            .text("Administrative")
+            .style("font-size", "30px")
+            .attr("alignment-baseline", "middle");
+
+          legend.append("rect")
+            .attr("y", 240)
+            .attr("width", 50)
+            .attr("height", 50)
+            .attr("fill", colorScale("Unknown"));
+
+          legend.append("text")
+            .attr("x", 50)
+            .attr("y", 265)
+            .text("Unknown")
+            .style("font-size", "30px")
+            .attr("alignment-baseline", "middle");
+
+          // add the curvy lines
+          function tick() {
+            path.attr("d", function (d) {
+              var dx = d.target.x - d.source.x,
+                dy = d.target.y - d.source.y,
+                dr = Math.sqrt(dx * dx + dy * dy);
+              return "M" +
+                d.source.x + "," +
+                d.source.y + "A" +
+                dr + "," + dr + " 0 0,1 " +
+                d.target.x + "," +
+                d.target.y;
+            });
+
+            node.attr("transform", function (d) {
+              return "translate(" + d.x + "," + d.y + ")";
+            });
+          };
+
+          function tick() {
+            path.attr("d", function (d) {
+              var dx = d.target.x - d.source.x,
+                dy = d.target.y - d.source.y,
+                dr = Math.sqrt(dx * dx + dy * dy);
+              return "M" +
+                d.source.x + "," +
+                d.source.y + "A" +
+                dr + "," + dr + " 0 0,1 " +
+                d.target.x + "," +
+                d.target.y;
+            });
+
+            node.attr("transform", function (d) {
+              return "translate(" + d.x + "," + d.y + ")";
+            });
+          };
+
+          function click(d) {
+            document.getElementById("popup-case-name").innerHTML = d.name;
+            document.getElementById("popup-case-id").innerHTML = d.id;
+            document.getElementById("popup-case-jurisdiction").innerHTML = d.jurisdiction;
+            document.getElementById("popup-case-opinion").innerHTML = d.text;
+
+            document.getElementById("popup").style.display = "block";
+          };
+
+          function dragstarted(d) {
+            if (!d3.event.active) force.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+          };
+
+          function dragged(d) {
+            d.fx = d3.event.x;
+            d.fy = d3.event.y;
+          };
+
+          function dragended(d) {
+            if (!d3.event.active) force.alphaTarget(0);
+            if (d.fixed == true) {
+              d.fx = d.x;
+              d.fy = d.y;
+            }
+            else {
+              d.fx = null;
+              d.fy = null;
+            }
+          };
+        })
+        .catch(error => console.log('Error fetching data:', error));
+    }
+
+    // fetch('/data')
+    //   .then(response => response.json())
+    //   .then(data => {
+    //     console.log(data.rows);
+    //     let nodes = data.rows;
+
+    //     let width = 3000,
+    //       height = 2000;
+
+    //     let force = d3.forceSimulation()
+    //       .nodes(d3.values(nodes))
+    //       // .force("link", d3.forceLink(links).distance(100))
+    //       .force('center', d3.forceCenter(width / 3, height / 2))
+    //       .force("x", d3.forceX())
+    //       .force("y", d3.forceY())
+    //       .force("charge", d3.forceManyBody().strength(-1000))
+    //       // .alphaTarget(1)
+    //       .on("tick", tick);
+
+    //     let svg = d3.select("#main-container").append("svg")
+    //       .attr("width", width)
+    //       .attr("height", height);
+
+    //     let node = svg.selectAll(".node")
+    //       .data(force.nodes())
+    //       .enter().append("g")
+    //       .attr("class", "node")
+    //     // .call(d3.drag()
+    //     //   .on("start", dragstarted)
+    //     //   .on("drag", dragged)
+    //     //   .on("end", dragended));
+
+    //     // add the nodes
+    //     node.append("circle")
+    //       // .attr("id", function (d) {
+    //       //   return (d.name.replace(/\s+/g, '').toLowerCase());
+    //       // })
+    //       .attr("r", 60)
+    //       .attr("fill", "grey");
+
+    //     // add the node labels
+    //     node.append("text")
+    //       .attr("x", 0)
+    //       .attr("y", 5)
+    //       .attr("text-anchor", "middle")
+    //       .attr("dominant-baseline", "middle")
+    //       .text(d => d.row.name_abbreviation.slice(0, 15));
+
+    //     node.on("click", click);
+
+    //     // add the curvy lines
+    //     function tick() {
+    //       // path.attr("d", function (d) {
+    //       //   var dx = d.target.x - d.source.x,
+    //       //     dy = d.target.y - d.source.y,
+    //       //     dr = Math.sqrt(dx * dx + dy * dy);
+    //       //   return "M" +
+    //       //     d.source.x + "," +
+    //       //     d.source.y + "A" +
+    //       //     dr + "," + dr + " 0 0,1 " +
+    //       //     d.target.x + "," +
+    //       //     d.target.y;
+    //       // });
+
+    //       node.attr("transform", function (d) {
+    //         if (!d.fixed) {
+    //           return "translate(" + d.x + "," + d.y + ")";
+    //         } else {
+    //           return "translate(" + d.fx + "," + d.fy + ")";
+    //         }
+    //       });
+    //     };
+
+    //     function click(d) {
+    //       document.getElementById("popup-case-name").innerHTML = d.row.name;
+    //       document.getElementById("popup-case-id").innerHTML = d.row.id;
+    //       document.getElementById("popup-case-jurisdiction").innerHTML = d.row.jurisdiction;
+    //       document.getElementById("popup-case-opinion").innerHTML = d.row.text;
+
+    //       document.getElementById("popup").style.display = "block";
+    //     }
+    //   })
+    //   .catch(error => console.log('Error fetching data:', error));
+
+  </script>
+</body>
+
+</html>

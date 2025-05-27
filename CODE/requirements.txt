@@ -1,0 +1,9 @@
+flask
+torch
+pandas
+transformers
+scikit-learn
+gensim
+faiss-cpu
+pyarrow
+bert_score
