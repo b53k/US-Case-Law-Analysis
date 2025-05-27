@@ -67,11 +67,11 @@ This interactive dashboard visualizes historical case law data across US states 
 
 #### Choropleth Map
 
-![Visualization](./flaskapp/static/Visualize.png)
+![Visualization](./CODE/flaskapp/static/Visualize.png)
 
 #### Network Graph
 
-![Visualization](./flaskapp/static/network_graph.png)
+![Visualization](./CODE/flaskapp/static/network_graph.png)
 
 ### 📂 Dataset
 
